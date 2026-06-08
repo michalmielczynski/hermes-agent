@@ -1,0 +1,7 @@
+node_modules/
+# Generated headless-verifier artifacts (demo-frame.*, demo-report.txt,
+# demo-real-frame.txt, demo-real-report.txt). Globbed so new verifiers are
+# covered automatically.
+demo-*.txt
+demo-*.ansi
+*.log
