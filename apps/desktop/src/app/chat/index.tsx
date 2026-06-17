@@ -15,9 +15,7 @@ import { Backdrop } from '@/components/Backdrop'
 import { PromptOverlays } from '@/components/prompt-overlays'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
-import { ErrorState } from '@/components/ui/error-state'
 import { getGlobalModelOptions, type HermesGateway } from '@/hermes'
-import { useI18n } from '@/i18n'
 import type { ChatMessage } from '@/lib/chat-messages'
 import { quickModelOptions, sessionTitle, toRuntimeMessage } from '@/lib/chat-runtime'
 import { useIncrementalExternalStoreRuntime } from '@/lib/incremental-external-store-runtime'
@@ -40,7 +38,6 @@ import {
   $lastVisibleMessageIsUser,
   $messages,
   $messagesEmpty,
-  $resumeExhaustedSessionId,
   $selectedStoredSessionId,
   $sessions,
   sessionPinId
@@ -89,7 +86,6 @@ interface ChatViewProps extends Omit<React.ComponentProps<'div'>, 'onSubmit'> {
   onEdit: (message: AppendMessage) => Promise<void>
   onReload: (parentId: string | null) => Promise<void>
   onRestoreToMessage?: (messageId: string) => Promise<void>
-  onRetryResume: (sessionId: string) => void
   onTranscribeAudio?: (audio: Blob) => Promise<string>
   onDismissError?: (messageId: string) => void
 }
@@ -277,12 +273,10 @@ export function ChatView({
   onEdit,
   onReload,
   onRestoreToMessage,
-  onRetryResume,
   onTranscribeAudio,
   onDismissError
 }: ChatViewProps) {
   const location = useLocation()
-  const { t } = useI18n()
   const activeSessionId = useStore($activeSessionId)
   const awaitingResponse = useStore($awaitingResponse)
   const busy = useStore($busy)
@@ -304,7 +298,6 @@ export function ChatView({
   const messagesEmpty = useStore($messagesEmpty)
   const lastVisibleIsUser = useStore($lastVisibleMessageIsUser)
   const selectedSessionId = useStore($selectedStoredSessionId)
-  const resumeExhaustedSessionId = useStore($resumeExhaustedSessionId)
   const routedSessionId = routeSessionId(location.pathname)
   const isRoutedSessionView = Boolean(routedSessionId)
 
@@ -324,21 +317,9 @@ export function ChatView({
   // session exists — even if it has zero messages (a brand-new routed
   // session). The flicker where `busy` flips true briefly during hydrate
   // is handled by `threadLoadingState`'s last-visible-user gate.
-  //
-  // resumeExhausted: the bounded auto-retry in use-route-resume gave up on this
-  // routed session (gateway RPC + REST fallback failed through every attempt).
-  // Suppress the loader and show an explicit error + manual Retry instead of
-  // spinning forever. Gated on the route matching so a stale latch from another
-  // session can't blank the current one.
-  const resumeExhausted = isRoutedSessionView && resumeExhaustedSessionId === routedSessionId
-
-  const loadingSession =
-    !resumeExhausted && isRoutedSessionView && (routeSessionMismatch || (messagesEmpty && !activeSessionId))
-
+  const loadingSession = isRoutedSessionView && (routeSessionMismatch || (messagesEmpty && !activeSessionId))
   const threadLoading = threadLoadingState(loadingSession, busy, awaitingResponse, lastVisibleIsUser)
-  // Hide the composer in the exhausted error state too: there's no live runtime
-  // to send to until a retry rebinds one.
-  const showChatBar = !loadingSession && !resumeExhausted
+  const showChatBar = !loadingSession
   const threadKey = selectedSessionId || activeSessionId || (isRoutedSessionView ? location.pathname : 'new')
 
   const modelOptionsQuery = useQuery<ModelOptionsResponse>({
@@ -487,21 +468,6 @@ export function ChatView({
             </Suspense>
           )}
         </ChatRuntimeBoundary>
-        {resumeExhausted && routedSessionId && (
-          <div className="absolute inset-0 z-10 grid place-items-center bg-(--ui-chat-surface-background) px-8 py-10">
-            <ErrorState
-              className="max-w-sm"
-              description={t.desktop.resumeStrandedBody}
-              title={t.desktop.resumeStrandedTitle}
-            >
-              <div className="grid justify-items-center">
-                <Button onClick={() => onRetryResume(routedSessionId)} size="sm" variant="outline">
-                  {t.desktop.resumeRetry}
-                </Button>
-              </div>
-            </ErrorState>
-          </div>
-        )}
         {showChatBar && <ScrollToBottomButton />}
         <ChatDropOverlay kind={dragKind} />
         <ChatSwapOverlay profile={gatewaySwapTarget} />
