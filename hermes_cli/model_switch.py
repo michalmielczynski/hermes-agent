@@ -1425,7 +1425,11 @@ def list_authenticated_providers(
             if hermes_id in _MODELS_DEV_PREFERRED:
                 model_ids = _merge_with_models_dev(hermes_id, model_ids)
         total = len(model_ids)
+<<<<<<< HEAD
         top = model_ids[:max_models] if max_models is not None else model_ids
+=======
+        top = model_ids[:max_models] if max_models else model_ids
+>>>>>>> 9705e7944 (fix(picker): remove max_models=50 cap in interactive model pickers)
 
         slug = hermes_id
         pinfo = _mdev_pinfo(mdev_id)
@@ -1588,7 +1592,11 @@ def list_authenticated_providers(
                 if hermes_slug in _MODELS_DEV_PREFERRED:
                     model_ids = _merge_with_models_dev(hermes_slug, model_ids)
         total = len(model_ids)
+<<<<<<< HEAD
         top = model_ids[:max_models] if max_models is not None else model_ids
+=======
+        top = model_ids[:max_models] if max_models else model_ids
+>>>>>>> 9705e7944 (fix(picker): remove max_models=50 cap in interactive model pickers)
 
         results.append({
             "slug": hermes_slug,
@@ -1663,7 +1671,11 @@ def list_authenticated_providers(
             if not _cp_model_ids:
                 _cp_model_ids = curated.get(_cp.slug, [])
         _cp_total = len(_cp_model_ids)
+<<<<<<< HEAD
         _cp_top = _cp_model_ids[:max_models] if max_models is not None else _cp_model_ids
+=======
+        _cp_top = _cp_model_ids[:max_models] if max_models else _cp_model_ids
+>>>>>>> 9705e7944 (fix(picker): remove max_models=50 cap in interactive model pickers)
 
         results.append({
             "slug": _cp.slug,
@@ -2082,7 +2094,11 @@ def list_picker_providers(
             except Exception:
                 live_ids = list(p.get("models", []))
             p = dict(p)
+<<<<<<< HEAD
             p["models"] = live_ids[:max_models] if max_models is not None else live_ids
+=======
+            p["models"] = live_ids[:max_models] if max_models else live_ids
+>>>>>>> 9705e7944 (fix(picker): remove max_models=50 cap in interactive model pickers)
             p["total_models"] = len(live_ids)
 
         has_models = bool(p.get("models"))
