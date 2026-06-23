@@ -127,6 +127,12 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
       }
     },
     {
+      icon: <Codicon name="screen-full" />,
+      id: 'fullscreen',
+      label: 'Toggle Full Screen',
+      onSelect: () => window.hermesDesktop?.toggleFullscreen()
+    },
+    {
       icon: <Codicon name="settings-gear" />,
       id: 'settings',
       label: t.titlebar.openSettings,

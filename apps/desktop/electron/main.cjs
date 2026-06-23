@@ -5336,6 +5336,21 @@ ipcMain.handle('hermes:window:openNewSession', async () => {
 
   return { ok: true }
 })
+ipcMain.handle('hermes:fullscreen:toggle', async () => {
+  const win = BrowserWindow.getFocusedWindow()
+  if (win) {
+    if (win.isFullScreen()) {
+      win.setFullScreen(false)
+    } else {
+      win.setFullScreen(true)
+    }
+    return { fullscreen: win.isFullScreen() }
+  }
+  return { fullscreen: false }
+})
+ipcMain.handle('hermes:fullscreen:get', async () => ({
+  fullscreen: BrowserWindow.getFocusedWindow()?.isFullScreen() ?? false
+}))
 ipcMain.handle('hermes:bootstrap:reset', async () => {
   // Renderer's "Reload and retry" path. Clear the latched failure and
   // reset connection state so the next startHermes() call restarts the
