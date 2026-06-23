@@ -23,6 +23,22 @@ import { PreviewAttachment } from '@/components/chat/preview-attachment'
 import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { normalizeExternalUrl, openExternalLink, PrettyLink } from '@/lib/external-link'
+// Resolve a local file path to a data URL via Electron IPC so the sandboxed
+// renderer can display it. `file://…` and absolute paths are supported.
+async function resolveLocalImage(src: string): Promise<string> {
+  // Already loadable by the browser.
+  if (/^(?:https?|data|blob):/i.test(src)) {
+    return src
+  }
+
+  // Local file — read through the main process.
+  const filePath = src.startsWith('file:') ? filePathFromMediaPath(src) : src
+  try {
+    return await window.hermesDesktop!.readFileDataUrl(filePath)
+  } catch {
+    return src
+  }
+}
 import { createMemoizedMathPlugin } from '@/lib/katex-memo'
 import { preprocessMarkdown } from '@/lib/markdown-preprocess'
 import {
@@ -282,6 +298,24 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
 }
 
 function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>) {
+  const [resolvedSrc, setResolvedSrc] = useState(src ?? '')
+  
+  // Resolve local file paths via IPC so the sandboxed renderer can display them.
+  useEffect(() => {
+    if (!src) return
+    let cancelled = false
+    void resolveLocalImage(src).then(url => {
+      if (!cancelled) {
+        setResolvedSrc(url)
+      }
+    })
+    return () => { cancelled = true }
+  }, [src])
+
+  if (!resolvedSrc) {
+    return null
+  }
+
   return (
     <ZoomableImage
       alt={alt}
@@ -291,7 +325,7 @@ function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>)
       )}
       containerClassName="my-2 block w-fit max-w-full"
       slot="aui_markdown-image"
-      src={src}
+      src={resolvedSrc}
       {...props}
     />
   )
