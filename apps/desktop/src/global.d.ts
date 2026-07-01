@@ -175,6 +175,8 @@ declare global {
       cancelBootstrap: () => Promise<{ ok: boolean; cancelled: boolean }>
       onBootstrapEvent: (callback: (payload: DesktopBootstrapEvent) => void) => () => void
       getVersion: () => Promise<DesktopVersionInfo>
+      toggleFullscreen: () => Promise<{ fullscreen: boolean }>
+      isFullscreen: () => Promise<{ fullscreen: boolean }>
       getRemoteDisplayReason?: () => Promise<string | null>
       updates: {
         check: () => Promise<DesktopUpdateStatus>

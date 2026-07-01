@@ -4027,7 +4027,7 @@ function buildApplicationMenu() {
         }
       },
       { type: 'separator' },
-      { role: 'togglefullscreen' }
+      { role: 'togglefullscreen', accelerator: 'F11' }
     ]
   })
   template.push({
@@ -6074,6 +6074,23 @@ ipcMain.handle('hermes:window:openNewSession', async () => {
   return { ok: true }
 })
 
+// --- Fullscreen toggle (F11 / titlebar icon) ------------------------------
+ipcMain.handle('hermes:fullscreen:toggle', async () => {
+  const win = BrowserWindow.getFocusedWindow()
+  if (win) {
+    if (win.isFullScreen()) {
+      win.setFullScreen(false)
+    } else {
+      win.setFullScreen(true)
+    }
+    return { fullscreen: win.isFullScreen() }
+  }
+  return { fullscreen: false }
+})
+ipcMain.handle('hermes:fullscreen:get', async () => ({
+  fullscreen: BrowserWindow.getFocusedWindow()?.isFullScreen() ?? false
+}))
+
 // --- Pet overlay (pop-out mascot) -----------------------------------------
 // `request` is `{ bounds, screen }`. A fresh pop-out passes viewport-space
 // bounds (screen=false): convert to screen space by adding the main window's
@@ -7519,11 +7536,7 @@ app.on('open-url', (event, url) => {
 })
 
 app.whenReady().then(() => {
-  if (IS_MAC) {
-    Menu.setApplicationMenu(buildApplicationMenu())
-  } else {
-    Menu.setApplicationMenu(null)
-  }
+  Menu.setApplicationMenu(buildApplicationMenu())
   installMediaPermissions()
   registerMediaProtocol()
   installEmbedReferer()

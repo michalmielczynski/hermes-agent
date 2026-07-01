@@ -19,11 +19,26 @@ import {
   useState
 } from 'react'
 
-import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { PreviewAttachment } from '@/components/chat/preview-attachment'
-import { chunkByLines, SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
+import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { normalizeExternalUrl, openExternalLink, PrettyLink } from '@/lib/external-link'
+// Resolve a local file path to a data URL via Electron IPC so the sandboxed
+// renderer can display it. `file://…` and absolute paths are supported.
+async function resolveLocalImage(src: string): Promise<string> {
+  // Already loadable by the browser.
+  if (/^(?:https?|data|blob):/i.test(src)) {
+    return src
+  }
+
+  // Local file — read through the main process.
+  const filePath = src.startsWith('file:') ? filePathFromMediaPath(src) : src
+  try {
+    return await window.hermesDesktop!.readFileDataUrl(filePath)
+  } catch {
+    return src
+  }
+}
 import { createMemoizedMathPlugin } from '@/lib/katex-memo'
 import { preprocessMarkdown } from '@/lib/markdown-preprocess'
 import {
@@ -39,8 +54,6 @@ import {
 import { previewTargetFromMarkdownHref } from '@/lib/preview-targets'
 import { tailBoundedRemend } from '@/lib/remend-tail'
 import { cn } from '@/lib/utils'
-
-import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } from './embeds'
 
 // Math rendering plugin (KaTeX). Configured once at module scope — the
 // plugin is stateless beyond its internal cache so re-creating per-render
@@ -60,6 +73,11 @@ const mathPlugin = createMemoizedMathPlugin({ singleDollarTextMath: true })
 // flush) with a tail-bounded repair — see lib/remend-tail.ts. Must stay
 // module-scope so the prop identity is stable across renders.
 function preprocessWithTailRepair(text: string): string {
+  // Streamdown runs `preprocess` inside its own useMemo, so anything thrown
+  // here escapes to the ROOT error boundary and takes down the whole app — a
+  // single adversarial message (e.g. content that overflows a regex/stack)
+  // shouldn't be able to do that. Degrade to the raw text instead; it still
+  // renders, just without our cosmetic normalization.
   try {
     return tailBoundedRemend(preprocessMarkdown(text))
   } catch {
@@ -272,17 +290,6 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
   }
 
   const text = childrenToText(children)
-
-  // Bare autolink → inline rich embed when a provider matches. Labeled links
-  // (`[watch](url)`) stay plain. Desktop only (webview / iframe renderers).
-  if (window.hermesDesktop && text && normalizeExternalUrl(text) === target) {
-    const embed = detectEmbed(target)
-
-    if (embed) {
-      return <UrlEmbed descriptor={embed} />
-    }
-  }
-
   const fallbackLabel = text && normalizeExternalUrl(text) !== target ? text : undefined
 
   return (
@@ -291,6 +298,24 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
 }
 
 function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>) {
+  const [resolvedSrc, setResolvedSrc] = useState(src ?? '')
+  
+  // Resolve local file paths via IPC so the sandboxed renderer can display them.
+  useEffect(() => {
+    if (!src) return
+    let cancelled = false
+    void resolveLocalImage(src).then(url => {
+      if (!cancelled) {
+        setResolvedSrc(url)
+      }
+    })
+    return () => { cancelled = true }
+  }, [src])
+
+  if (!resolvedSrc) {
+    return null
+  }
+
   return (
     <ZoomableImage
       alt={alt}
@@ -300,7 +325,7 @@ function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>)
       )}
       containerClassName="my-2 block w-fit max-w-full"
       slot="aui_markdown-image"
-      src={src}
+      src={resolvedSrc}
       {...props}
     />
   )
@@ -471,35 +496,8 @@ const MARKDOWN_CONTAINER_CLASS_NAME = cn(
   '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>*+*]:mt-(--paragraph-gap)'
 )
 
-const MAX_MARKDOWN_CHARS = 200_000
-
-function HugeTextFallback({ containerClassName, text }: { containerClassName?: string; text: string }) {
-  const chunks = useMemo(() => chunkByLines(text, 200), [text])
-
-  return (
-    <div
-      className={cn(
-        'aui-md w-full max-w-none overflow-hidden rounded-[0.625rem] border border-border font-mono text-[0.7rem] leading-relaxed text-foreground/90',
-        containerClassName
-      )}
-    >
-      <ExpandableBlock className="p-2">
-        {chunks.map((chunk, index) => (
-          <div
-            className="[content-visibility:auto]"
-            key={index}
-            style={{ containIntrinsicSize: `auto ${chunk.lines * 16}px` }}
-          >
-            {chunk.text}
-          </div>
-        ))}
-      </ExpandableBlock>
-    </div>
-  )
-}
-
 function MarkdownTextSurface({ containerClassName, containerProps }: MarkdownTextSurfaceProps) {
-  const { status, text } = useMessagePartText()
+  const { status } = useMessagePartText()
   const isStreaming = status.type === 'running'
 
   // Keep code parsing enabled while streaming so incomplete fenced blocks still
@@ -548,25 +546,13 @@ function MarkdownTextSurface({ containerClassName, containerProps }: MarkdownTex
         // owning per-line text direction. Inline code carries `dir="ltr"`
         // (see the `code` override) so it doesn't vote here either, same
         // contract as the CSS isolate.
-        // A `> [!NOTE]`/`[!WARNING]`/... blockquote renders as a GFM alert
-        // callout; everything else stays a plain quote.
-        blockquote: ({ children, className, ...props }: ComponentProps<'blockquote'>) => {
-          const alert = extractAlert(children)
-
-          if (alert) {
-            return <MarkdownAlert type={alert.type}>{alert.body}</MarkdownAlert>
-          }
-
-          return (
-            <blockquote
-              className={cn('border-s-2 border-border ps-3 text-muted-foreground italic', className)}
-              dir="auto"
-              {...props}
-            >
-              {children}
-            </blockquote>
-          )
-        },
+        blockquote: ({ className, ...props }: ComponentProps<'blockquote'>) => (
+          <blockquote
+            className={cn('border-s-2 border-border ps-3 text-muted-foreground italic', className)}
+            dir="auto"
+            {...props}
+          />
+        ),
         ul: ({ className, ...props }: ComponentProps<'ul'>) => (
           <ul className={cn('my-1 gap-0', className)} dir="auto" {...props} />
         ),
@@ -603,23 +589,10 @@ function MarkdownTextSurface({ containerClassName, containerProps }: MarkdownTex
           <td className={cn('px-2.5 py-1.5 align-top text-[0.8125rem] leading-snug', className)} {...props} />
         ),
         img: MarkdownImage,
-        // ```mermaid / ```svg fences route to their lazy renderers; every other
-        // language falls back to the Shiki-highlighted code block.
-        SyntaxHighlighter: (props: SyntaxHighlighterProps) => (
-          <RichCodeBlock
-            code={props.code}
-            fallback={<SyntaxHighlighter {...props} defer={isStreaming} />}
-            language={props.language}
-            streaming={isStreaming}
-          />
-        )
+        SyntaxHighlighter: (props: SyntaxHighlighterProps) => <SyntaxHighlighter {...props} defer={isStreaming} />
       }) as StreamdownTextComponents,
     [isStreaming]
   )
-
-  if (text.length > MAX_MARKDOWN_CHARS) {
-    return <HugeTextFallback containerClassName={containerClassName} text={text} />
-  }
 
   return (
     <StreamdownTextPrimitive
